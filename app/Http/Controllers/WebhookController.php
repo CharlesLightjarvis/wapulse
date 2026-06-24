@@ -6,21 +6,15 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 
 class WebhookController extends Controller
 {
-    /**
-     * Keyword → auto-reply config.
-     * Each entry: 'type' => 'text'|'document', plus the relevant fields.
-     */
     private array $keywords = [
         'DETTES' => [
-            'type'         => 'document',
-            'storage_path' => 'sss.pdf',   // storage/app/public/sss.pdf — disk('public')
-            'filename'     => 'guide-dettes.pdf',
-            'mimetype'     => 'application/pdf',
-            'caption'      => "Voici le guide complet sur la gestion des dettes. N'hésitez pas à me contacter pour toute question.",
+            'type'     => 'document',
+            'url'      => '/storage/sss.pdf',
+            'filename' => 'guide-dettes.pdf',
+            'caption'  => "Voici le guide complet sur la gestion des dettes. N'hésitez pas à me contacter pour toute question.",
         ],
         'NON' => [
             'type' => 'text',
@@ -30,7 +24,6 @@ class WebhookController extends Controller
 
     public function receive(Request $request): Response
     {
-        // 1. Verify HMAC signature
         $secret = config('services.openwa.webhook_secret');
         if ($secret) {
             $signature = $request->header('X-OpenWA-Signature', '');
@@ -49,7 +42,7 @@ class WebhookController extends Controller
         }
 
         $data      = $payload['data'] ?? [];
-        $from      = $data['from']      ?? null;    // e.g. "21628509092@c.us"
+        $from      = $data['from']      ?? null;
         $body      = strtoupper(trim($data['body'] ?? ''));
         $sessionId = $payload['sessionId'] ?? config('services.openwa.session_id');
 
@@ -57,12 +50,10 @@ class WebhookController extends Controller
             return response('OK', 200);
         }
 
-        // Ignore group messages
         if (str_contains($from, '@g.us')) {
             return response('OK', 200);
         }
 
-        // 2. Match keyword
         $reply = $this->keywords[$body] ?? null;
         if (! $reply) {
             return response('OK', 200);
@@ -70,9 +61,8 @@ class WebhookController extends Controller
 
         Log::info('OpenWA auto-reply triggered', ['from' => $from, 'keyword' => $body]);
 
-        // 3. Send auto-reply
         if ($reply['type'] === 'document') {
-            $this->sendDocument($sessionId, $from, $reply['storage_path'], $reply['filename'], $reply['mimetype'], $reply['caption']);
+            $this->sendDocument($sessionId, $from, $reply['url'], $reply['filename'], $reply['caption']);
         } else {
             $this->sendText($sessionId, $from, $reply['text']);
         }
@@ -90,23 +80,23 @@ class WebhookController extends Controller
             ]);
     }
 
-    private function sendDocument(string $sessionId, string $chatId, string $storagePath, string $filename, string $mimetype, string $caption): void
+    private function sendDocument(string $sessionId, string $chatId, string $path, string $filename, string $caption): void
     {
-        if (! Storage::disk('public')->exists($storagePath)) {
-            Log::error('OpenWA auto-reply: file not found', ['path' => $storagePath]);
-            return;
-        }
+        $url = rtrim(config('app.url'), '/') . $path;
 
-        $base64 = base64_encode(Storage::disk('public')->get($storagePath));
+        Log::info('OpenWA sending document via URL', ['url' => $url, 'to' => $chatId]);
 
-        Http::timeout(60)
+        $response = Http::timeout(30)
             ->withHeaders(['x-api-key' => config('services.openwa.api_key')])
             ->post(config('services.openwa.url') . "/api/sessions/{$sessionId}/messages/send-document", [
                 'chatId'   => $chatId,
-                'base64'   => $base64,
-                'mimetype' => $mimetype,
+                'url'      => $url,
                 'filename' => $filename,
                 'caption'  => $caption,
             ]);
+
+        if (! $response->successful()) {
+            Log::error('OpenWA send-document failed', ['status' => $response->status(), 'body' => $response->body()]);
+        }
     }
 }
