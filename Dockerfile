@@ -28,7 +28,7 @@ WORKDIR /app
 COPY . .
 
 # PHP dependencies — no scripts so @php artisan doesn't run during install
-RUN composer install --no-scripts --optimize-autoloader --no-interaction --no-dev
+RUN composer install --no-scripts --optimize-autoloader --no-interaction --no-dev --ignore-platform-reqs
 
 # .env needed for Laravel bootstrap during package discovery (removed after)
 RUN cp .env.example .env
