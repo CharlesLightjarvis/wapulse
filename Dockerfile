@@ -17,8 +17,6 @@ COPY components.json* ./
 
 RUN npm run build
 
-
-# ---------- PHP / Laravel ----------
 FROM php:8.4-fpm
 
 WORKDIR /var/www/html
@@ -41,6 +39,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libicu-dev \
     libsqlite3-dev \
     ca-certificates \
+    nodejs \
+    npm \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j$(nproc) \
         pdo \
@@ -71,9 +71,13 @@ RUN composer install \
     --optimize-autoloader \
     --no-scripts
 
+COPY package.json package-lock.json* ./
+
+RUN npm install
+
 COPY . .
 
-COPY --from=frontend /app/public/build ./public/build
+RUN npm run build
 
 COPY docker/nginx.conf /etc/nginx/sites-available/default
 COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
