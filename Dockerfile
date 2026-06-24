@@ -4,13 +4,16 @@ ARG NODE_VERSION=22
 
 # System dependencies
 RUN apt-get update && apt-get install -y \
-    git curl zip unzip libzip-dev libpng-dev libxml2-dev \
-    libonig-dev libsqlite3-dev nginx supervisor ca-certificates gnupg \
+    git curl zip unzip \
+    libzip-dev libpng-dev libxml2-dev \
+    libonig-dev libsqlite3-dev libicu-dev \
+    nginx supervisor ca-certificates gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# PHP extensions
+# PHP extensions (intl needed by phpspreadsheet/maatwebsite-excel)
 RUN docker-php-ext-install \
-    pdo pdo_sqlite mbstring xml bcmath zip gd opcache
+        pdo_sqlite mbstring xml bcmath zip gd intl \
+    && docker-php-ext-enable opcache
 
 # Node.js 22
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
@@ -24,16 +27,29 @@ WORKDIR /app
 
 COPY . .
 
-# PHP dependencies (no scripts to avoid @php artisan with wrong PHP)
-RUN composer install --no-scripts --optimize-autoloader --no-interaction --no-dev \
-    && php artisan package:discover --ansi
+# Temporary .env so artisan can bootstrap (removed after build)
+RUN cp .env.example .env && php artisan key:generate --force
+
+# PHP dependencies — no scripts so @php artisan doesn't run during install
+RUN composer install --no-scripts --optimize-autoloader --no-interaction --no-dev
+
+# Package discovery with PHP 8.3
+RUN php artisan package:discover --ansi
+
+# Remove build-time .env
+RUN rm .env
 
 # Frontend build
 RUN npm ci && npm run build && rm -rf node_modules
 
 # Permissions
-RUN mkdir -p storage/logs storage/framework/sessions storage/framework/views storage/framework/cache \
-        bootstrap/cache /var/log/nginx /var/log/php-fpm \
+RUN mkdir -p \
+        storage/logs \
+        storage/framework/sessions \
+        storage/framework/views \
+        storage/framework/cache \
+        bootstrap/cache \
+        /var/log/nginx \
     && touch database/database.sqlite \
     && chown -R www-data:www-data storage bootstrap/cache database \
     && chmod -R 775 storage bootstrap/cache
