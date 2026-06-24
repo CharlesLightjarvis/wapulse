@@ -1,21 +1,20 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
-# Permissions
-chown -R www-data:www-data /app/storage /app/bootstrap/cache /app/database
-chmod -R 775 /app/storage /app/bootstrap/cache
+cd /var/www/html
 
-# SQLite DB
-touch /app/database/database.sqlite
-chown www-data:www-data /app/database/database.sqlite
+if [ ! -f ".env" ]; then
+    echo "No .env file found. Coolify environment variables will be used."
+fi
 
-# Laravel
-cd /app
-/usr/local/bin/php artisan storage:link --force
-/usr/local/bin/php artisan migrate --force
-/usr/local/bin/php artisan config:cache
-/usr/local/bin/php artisan route:cache
-/usr/local/bin/php artisan view:cache
+php artisan storage:link || true
 
-# Start all processes via supervisor
-exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
+php artisan config:clear || true
+php artisan route:clear || true
+php artisan view:clear || true
+
+php artisan migrate --force || true
+
+php artisan optimize || true
+
+exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf

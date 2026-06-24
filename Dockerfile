@@ -1,65 +1,92 @@
-FROM php:8.3-fpm
-
-ARG NODE_VERSION=22
-
-# System dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl zip unzip \
-    libzip-dev libpng-dev libxml2-dev \
-    libonig-dev libsqlite3-dev libicu-dev \
-    nginx supervisor ca-certificates gnupg \
-    && rm -rf /var/lib/apt/lists/*
-
-# PHP extensions (intl needed by phpspreadsheet/maatwebsite-excel)
-RUN docker-php-ext-install \
-        pdo_sqlite mbstring xml bcmath zip gd intl \
-    && docker-php-ext-enable opcache
-
-# Node.js 22
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-# Composer
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+# ---------- Frontend build ----------
+FROM node:22-alpine AS frontend
 
 WORKDIR /app
 
+COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* ./
+
+RUN if [ -f package-lock.json ]; then npm ci; \
+    elif [ -f pnpm-lock.yaml ]; then corepack enable && pnpm install --frozen-lockfile; \
+    elif [ -f yarn.lock ]; then corepack enable && yarn install --frozen-lockfile; \
+    else npm install; fi
+
+COPY resources ./resources
+COPY public ./public
+COPY vite.config.* ./
+COPY tsconfig.json* ./
+COPY tailwind.config.* ./
+COPY postcss.config.* ./
+COPY components.json* ./
+
+RUN npm run build
+
+
+# ---------- PHP / Laravel ----------
+FROM php:8.4-fpm
+
+WORKDIR /var/www/html
+
+ENV COMPOSER_ALLOW_SUPERUSER=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nginx \
+    supervisor \
+    git \
+    curl \
+    zip \
+    unzip \
+    libzip-dev \
+    libpng-dev \
+    libjpeg-dev \
+    libfreetype6-dev \
+    libxml2-dev \
+    libonig-dev \
+    libicu-dev \
+    libsqlite3-dev \
+    ca-certificates \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j$(nproc) \
+        pdo \
+        pdo_mysql \
+        pdo_sqlite \
+        mbstring \
+        zip \
+        exif \
+        pcntl \
+        bcmath \
+        gd \
+        intl \
+        dom \
+        simplexml \
+        xml \
+        xmlreader \
+        xmlwriter \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+COPY composer.json composer.lock ./
+
+RUN composer install \
+    --no-dev \
+    --no-interaction \
+    --prefer-dist \
+    --optimize-autoloader \
+    --no-scripts
+
 COPY . .
 
-# PHP dependencies — no scripts so @php artisan doesn't run during install
-RUN composer install --no-scripts --optimize-autoloader --no-interaction --no-dev --ignore-platform-reqs
+COPY --from=frontend /app/public/build ./public/build
 
-# .env needed for Laravel bootstrap during package discovery (removed after)
-RUN cp .env.example .env
+COPY docker/nginx.conf /etc/nginx/sites-available/default
+COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY docker/start.sh /usr/local/bin/start.sh
 
-# Package discovery — explicit path to avoid any system PHP in PATH
-RUN /usr/local/bin/php artisan package:discover --ansi
-
-# Remove build-time .env
-RUN rm .env
-
-# Frontend build
-RUN npm ci && npm run build && rm -rf node_modules
-
-# Permissions
-RUN mkdir -p \
-        storage/logs \
-        storage/framework/sessions \
-        storage/framework/views \
-        storage/framework/cache \
-        bootstrap/cache \
-        /var/log/nginx \
-    && touch database/database.sqlite \
-    && chown -R www-data:www-data storage bootstrap/cache database \
-    && chmod -R 775 storage bootstrap/cache
-
-COPY .docker/nginx.conf /etc/nginx/nginx.conf
-COPY .docker/php-fpm.conf /usr/local/etc/php-fpm.d/www.conf
-COPY .docker/supervisord.conf /etc/supervisor/supervisord.conf
-COPY .docker/start.sh /start.sh
-RUN chmod +x /start.sh
+RUN chmod +x /usr/local/bin/start.sh \
+    && mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
+    && chown -R www-data:www-data storage bootstrap/cache \
+    && chmod -R ug+rwx storage bootstrap/cache
 
 EXPOSE 80
 
-CMD ["/start.sh"]
+CMD ["/usr/local/bin/start.sh"]
