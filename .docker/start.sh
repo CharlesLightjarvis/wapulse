@@ -11,11 +11,11 @@ chown www-data:www-data /app/database/database.sqlite
 
 # Laravel
 cd /app
-php artisan storage:link --force
-php artisan migrate --force
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
+/usr/local/bin/php artisan storage:link --force
+/usr/local/bin/php artisan migrate --force
+/usr/local/bin/php artisan config:cache
+/usr/local/bin/php artisan route:cache
+/usr/local/bin/php artisan view:cache
 
 # Start all processes via supervisor
 exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf

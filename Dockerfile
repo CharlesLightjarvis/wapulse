@@ -3,7 +3,7 @@ FROM php:8.3-fpm
 ARG NODE_VERSION=22
 
 # System dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl zip unzip \
     libzip-dev libpng-dev libxml2-dev \
     libonig-dev libsqlite3-dev libicu-dev \
@@ -33,8 +33,8 @@ RUN composer install --no-scripts --optimize-autoloader --no-interaction --no-de
 # .env needed for Laravel bootstrap during package discovery (removed after)
 RUN cp .env.example .env
 
-# Package discovery with PHP 8.3
-RUN php artisan package:discover --ansi
+# Package discovery — explicit path to avoid any system PHP in PATH
+RUN /usr/local/bin/php artisan package:discover --ansi
 
 # Remove build-time .env
 RUN rm .env
