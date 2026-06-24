@@ -17,7 +17,7 @@ class WebhookController extends Controller
     private array $keywords = [
         'DETTES' => [
             'type'         => 'document',
-            'storage_path' => 'public/sss.pdf',   // storage/app/public/sss.pdf
+            'storage_path' => 'sss.pdf',   // storage/app/public/sss.pdf — disk('public')
             'filename'     => 'guide-dettes.pdf',
             'mimetype'     => 'application/pdf',
             'caption'      => "Voici le guide complet sur la gestion des dettes. N'hésitez pas à me contacter pour toute question.",
@@ -92,12 +92,12 @@ class WebhookController extends Controller
 
     private function sendDocument(string $sessionId, string $chatId, string $storagePath, string $filename, string $mimetype, string $caption): void
     {
-        if (! Storage::exists($storagePath)) {
+        if (! Storage::disk('public')->exists($storagePath)) {
             Log::error('OpenWA auto-reply: file not found', ['path' => $storagePath]);
             return;
         }
 
-        $base64 = base64_encode(Storage::get($storagePath));
+        $base64 = base64_encode(Storage::disk('public')->get($storagePath));
 
         Http::timeout(60)
             ->withHeaders(['x-api-key' => config('services.openwa.api_key')])
